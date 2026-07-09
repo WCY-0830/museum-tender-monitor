@@ -44,14 +44,14 @@ def push_wecom(title, content):
     except Exception as err:
         print(f"推送失败：{str(err)}")
 
-# ========== RSS爬虫（标准lxml XML写法） ==========
+# ========== RSS爬虫（修正解析器写法） ==========
 def crawl_tender(rss_url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     }
     try:
         resp = requests.get(rss_url, headers=headers, timeout=20)
-        soup = BeautifulSoup(resp.content, features="lxml-xml")
+        soup = BeautifulSoup(resp.content, "xml", features="lxml")
         items = soup.find_all("item")
         print(f"RSS解析到招标条目总数：{len(items)}")
 
