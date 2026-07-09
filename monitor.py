@@ -1,4 +1,3 @@
-send_push_message("测试通知", "流水线运行成功，推送链路正常")
 import requests
 import time
 import json
@@ -65,6 +64,7 @@ def fetch_tender_data(url):
         return None
 
 def main():
+    send_push_message("测试通知", "流水线运行成功，推送链路正常")
     print(f"===== 监控启动 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
     cache = load_cache()
     new_total_count = 0
