@@ -1,27 +1,23 @@
 name: 博物馆招标监测
-
 on:
   schedule:
     - cron: "0 1 * * *"
   workflow_dispatch:
-
 jobs:
   monitor:
     runs-on: ubuntu-latest
-
+    env:
+      PUSH_WEBHOOK: ${{ secrets.PUSH_WEBHOOK }}
     steps:
       - name: 下载代码
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@4
       - name: 设置Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-
       - name: 安装依赖
         run: |
           pip install requests beautifulsoup4 pandas
-
       - name: 执行监测
         run: |
           python monitor.py
