@@ -1,113 +1,133 @@
 import requests
+from bs4 import BeautifulSoup
 import time
+import datetime
 import json
 import os
-from datetime import datetime
 
-# ===================== 配置区（自行修改）=====================
-# 招标网站接口，后续替换成真实美术馆、博物馆招标数据源地址
+# ========== 配置区 ==========
+# 监控站点：中国政府采购网 关键词搜索结果页
 API_URLS = {
-    "美术馆项目": "https://xxx.com/api/tender/art-museum",
-    "博物馆项目": "https://xxx.com/api/tender/museum"
+    "中国政府采购网-美术馆博物馆": "https://search.ccgp.gov.cn/bxsearch?searchtype=1&page_index=1&bidSort=0&buyerName=&projectId=&pinMu=0&bidType=1&dbselect=bidx&kw=%E7%BE%8E%E6%9C%AF%E9%A6%86+%E5%8D%9A%E7%89%A9%E9%A6%86&start_time=2026%3A01%3A01&end_time=2026%3A12%3A31&timeType=6&displayZone=&zoneId=&pppStatus=0&agentName="
 }
-# Webhook从仓库密钥读取，不用手动填写
-PUSH_WEBHOOK = os.getenv("PUSH_WEBHOOK", "")
-# 缓存文件，避免重复推送相同招标消息
-CACHE_FILE = "tender_cache.json"
-# 两次接口请求的间隔秒数
-REQUEST_INTERVAL = 3
-# ==========================================================
 
+# 只推送包含以下关键词的公告，过滤无关信息
+KEYWORDS = ["美术馆", "博物馆", "展陈", "展柜", "通柜", "陈列", "布展"]
+
+# 缓存文件名
+CACHE_FILE = "tender_cache.json"
+
+# 请求间隔（秒）
+REQUEST_INTERVAL = 3
+
+# 从环境变量读取企业微信webhook
+PUSH_WEBHOOK = os.getenv("PUSH_WEBHOOK", "")
+
+
+# ========== 功能函数 ==========
 def load_cache():
-    """读取本地缓存记录"""
     if not os.path.exists(CACHE_FILE):
-        return {}
-    with open(CACHE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return []
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
+
 
 def save_cache(cache_data):
-    """持久化更新缓存"""
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
+
 def send_push_message(title, content):
-    """向钉钉/企业微信推送提醒"""
     if not PUSH_WEBHOOK:
-        print("警告：未配置推送Webhook，跳过消息发送")
+        print("未配置推送webhook，跳过发送")
         return
     payload = {
         "msgtype": "text",
         "text": {
-            "content": f"【博物馆招标监控】{title}\n{content}"
+            "content": f"【招标监控】{title}\n\n{content}"
         }
     }
     try:
-        resp = requests.post(PUSH_WEBHOOK, json=payload, timeout=10)
-        if resp.status_code == 200:
-            print(f"推送成功：{title}")
-        else:
-            print(f"推送失败，响应码：{resp.status_code}，返回内容：{resp.text}")
+        requests.post(PUSH_WEBHOOK, json=payload, timeout=10)
+        print("推送消息已发送")
     except Exception as err:
-        print(f"推送请求异常：{str(err)}")
+        print(f"推送失败: {str(err)}")
+
 
 def fetch_tender_data(url):
-    """拉取站点招标数据"""
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
-        return resp.json()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        items = soup.select(".vT-srch-result-list-bid li")
+        tender_list = []
+        for item in items:
+            a_tag = item.select_one("a")
+            if not a_tag:
+                continue
+            title = a_tag.get_text(strip=True)
+            link = a_tag["href"]
+            tender_list.append({
+                "title": title,
+                "link": link
+            })
+        return tender_list
     except Exception as err:
-        print(f"接口访问失败 {url}：{str(err)}")
+        print(f"站点访问失败 {url}: {str(err)}")
         return None
 
+
+def filter_by_keyword(tender_list):
+    filtered = []
+    for t in tender_list:
+        for kw in KEYWORDS:
+            if kw in t["title"]:
+                filtered.append(t)
+                break
+    return filtered
+
+
+# ========== 主逻辑 ==========
 def main():
-    send_push_message("测试通知", "流水线运行成功，推送链路正常")
-    print(f"===== 监控启动 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
+    print(f"===== 监控启动 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
     cache = load_cache()
-    new_total_count = 0
+    all_new_tenders = []
 
     for site_name, api_url in API_URLS.items():
-        print(f"\n正在扫描站点：{site_name}")
-        resp_json = fetch_tender_data(api_url)
-        if not resp_json or "list" not in resp_json:
-            print(f"{site_name} 没有拿到合法招标列表数据")
+        print(f"正在扫描: {site_name}")
+        tender_list = fetch_tender_data(api_url)
+        if not tender_list:
             time.sleep(REQUEST_INTERVAL)
             continue
 
-        tender_items = resp_json["list"]
-        history_ids = cache.get(site_name, [])
-        newly_found = []
+        # 关键词过滤
+        matched = filter_by_keyword(tender_list)
+        print(f"抓到{len(tender_list)}条，关键词匹配{len(matched)}条")
 
-        for item in tender_items:
-            tender_unique_id = str(item.get("id", ""))
-            if tender_unique_id not in history_ids:
-                newly_found.append(item)
-                history_ids.append(tender_unique_id)
+        # 去重
+        for tender in matched:
+            if tender["link"] not in cache:
+                all_new_tenders.append(f"▪ {tender['title']}\n  链接: {tender['link']}")
+                cache.append(tender["link"])
 
-        if len(newly_found) == 0:
-            print(f"{site_name} 本轮没有新增招标项目")
-            continue
-
-        new_total_count += len(newly_found)
-        print(f"{site_name} 检测到 {len(newly_found)} 条新招标条目")
-        push_content = ""
-        for tender in newly_found:
-            push_content += f"""
-项目名称：{tender.get('title', '无数据')}
-招标编号：{tender.get('code', '无数据')}
-截止报名时间：{tender.get('end_time', '无数据')}
-项目详情页：{tender.get('detail_url', '无数据')}
-——————————————————
-"""
-        send_push_message(f"{site_name}新增{len(newly_found)}条招标", push_content.strip())
-        cache[site_name] = history_ids
         time.sleep(REQUEST_INTERVAL)
 
-    save_cache(cache)
-    print(f"\n本轮扫描结束，一共发现 {new_total_count} 条全新招标项目")
+    # 有新标就推送
+    if all_new_tenders:
+        content = "\n\n".join(all_new_tenders)
+        send_push_message(f"新增{len(all_new_tenders)}条匹配招标", content)
+        save_cache(cache)
+        print(f"推送完成，共{len(all_new_tenders)}条新招标")
+    else:
+        print("暂无新增匹配招标，不推送")
+
 
 if __name__ == "__main__":
     main()
