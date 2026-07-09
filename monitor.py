@@ -14,7 +14,7 @@ API_URLS = {
 # 只推送包含以下关键词的公告，过滤无关信息
 KEYWORDS = ["美术馆", "博物馆", "展陈", "展柜", "通柜", "陈列", "布展"]
 
-# 缓存文件名
+# 缓存文件名（GitHub Actions单次运行临时存储，跨轮次缓存失效为已知限制）
 CACHE_FILE = "tender_cache.json"
 
 # 请求间隔（秒）
@@ -31,7 +31,7 @@ def load_cache():
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception:
         return []
 
 
@@ -59,14 +59,15 @@ def send_push_message(title, content):
 
 def fetch_tender_data(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
+        resp = requests.get(url, headers=headers, timeout=20)
+        resp.encoding = resp.apparent_encoding
         soup = BeautifulSoup(resp.text, "html.parser")
+        items = soup.select("ul.vT-srch-result-list-bid li")
+        print(f"页面解析识别到招标条目总数：{len(items)}")
 
-        items = soup.select(".vT-srch-result-list-bid li")
         tender_list = []
         for item in items:
             a_tag = item.select_one("a")
@@ -109,9 +110,9 @@ def main():
 
         # 关键词过滤
         matched = filter_by_keyword(tender_list)
-        print(f"抓到{len(tender_list)}条，关键词匹配{len(matched)}条")
+        print(f"原始抓取{len(tender_list)}条公告，关键词筛选后剩余{len(matched)}条")
 
-        # 去重
+        # 做增量去重
         for tender in matched:
             if tender["link"] not in cache:
                 all_new_tenders.append(f"▪ {tender['title']}\n  链接: {tender['link']}")
@@ -119,14 +120,14 @@ def main():
 
         time.sleep(REQUEST_INTERVAL)
 
-    # 有新标就推送
+    # 存在新增招标才推送企业微信
     if all_new_tenders:
         content = "\n\n".join(all_new_tenders)
         send_push_message(f"新增{len(all_new_tenders)}条匹配招标", content)
         save_cache(cache)
-        print(f"推送完成，共{len(all_new_tenders)}条新招标")
+        print(f"推送完成，本轮共计推送{len(all_new_tenders)}条新招标")
     else:
-        print("暂无新增匹配招标，不推送")
+        print("本轮没有新增符合条件的招标内容，不发起消息推送")
 
 
 if __name__ == "__main__":
