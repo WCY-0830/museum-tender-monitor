@@ -5,18 +5,14 @@ import json
 import os
 
 # ========== 配置区 ==========
-# 数据源：欧盟官方招标平台TED的RSS订阅（关键词：博物馆、美术馆、展陈相关）
-# 海外GitHub节点访问欧盟平台零封禁，数据真实有效
 API_URLS = {
     "欧盟TED-文博类采购": "https://ted.europa.eu/en/search/search?page=1&categories=7&keyword=museum%20gallery%20exhibition&rss=true"
 }
 
-# 筛选关键词（英文，匹配海外招标标题）
 KEYWORDS = ["museum", "gallery", "exhibition", "display", "showcase", "conservation", "cultural"]
 
 CACHE_FILE = "tender_cache.json"
 REQUEST_INTERVAL = 2
-# 企业微信Webhook（GitHub仓库Secrets里配置的 PUSH_WEBHOOK）
 WECOM_WEBHOOK = os.getenv("PUSH_WEBHOOK", "")
 
 # ========== 缓存读写 ==========
@@ -48,14 +44,14 @@ def push_wecom(title, content):
     except Exception as err:
         print(f"推送失败：{str(err)}")
 
-# ========== RSS爬虫（欧盟TED平台，稳定无反爬） ==========
+# ========== RSS爬虫（修正XML解析器） ==========
 def crawl_tender(rss_url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     }
     try:
         resp = requests.get(rss_url, headers=headers, timeout=20)
-        soup = BeautifulSoup(resp.content, "xml")
+        soup = BeautifulSoup(resp.content, "xml-xml")
         items = soup.find_all("item")
         print(f"RSS解析到招标条目总数：{len(items)}")
 
@@ -107,7 +103,6 @@ if __name__ == "__main__":
         print(f"原始{len(raw_data)}条，关键词匹配{len(matched)}条")
 
         for tender in matched:
-            # 用链接做去重标识
             if tender["link"] not in cache:
                 msg = f"📌 {tender['title']}\n"
                 msg += f"📅 发布时间：{tender['pub_date']}\n"
