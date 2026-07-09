@@ -1,3 +1,4 @@
+send_push_message("测试通知", "流水线运行成功，推送链路正常")
 import requests
 import time
 import json
